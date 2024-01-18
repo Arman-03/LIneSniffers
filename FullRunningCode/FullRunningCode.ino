@@ -47,7 +47,7 @@ float Ivalue;
 float Dvalue;
 
 boolean onoff = false;
-int Speed = 125; 
+int Speed = 125 ;
 
 int val, cnt = 0, v[3];
 
@@ -62,8 +62,8 @@ void setup() {
 
   delay(500);
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH); 
-  
+  digitalWrite(LED_BUILTIN, HIGH);
+ 
   Serial.begin(115200);
   SerialBT.begin();
   Serial.println("Bluetooth Started! Ready to pair...");
@@ -111,17 +111,17 @@ void robot_control(){
     }
     position = qtr.readLineBlack(sensorValues);
   }
-  
+ 
   PID_Linefollow(error);
 }
 void PID_Linefollow(int error){
     P = error;
     I = I + error;
     D = error - previousError;
-    
+   
     Pvalue = (Kp/pow(10,multiP))*P;
     Ivalue = (Ki/pow(10,multiI))*I;
-    Dvalue = (Kd/pow(10,multiD))*D; 
+    Dvalue = (Kd/pow(10,multiD))*D;
 
     float PIDvalue = Pvalue + Ivalue + Dvalue;
     previousError = error;
@@ -176,27 +176,27 @@ void  processing() {
   if (a == 7)  {
     onoff = v[2];
   }
-} 
+}
 void motor_drive(int left, int right){
-  
+ 
   if(right>0)
   {
     motor2.setSpeed(right);
     motor2.forward();
   }
-  else 
+  else
   {
     motor2.setSpeed(right);
     motor2.backward();
   }
-  
+ 
  
   if(left>0)
   {
     motor1.setSpeed(left);
     motor1.forward();
   }
-  else 
+  else
   {
     motor1.setSpeed(left);
     motor1.backward();
