@@ -160,7 +160,7 @@ void valuesRead() {
   val = SerialBT.read();
   cnt++;
   v[cnt] = val;
-  if(cnt == 3) {
+  if(cnt == 2) {
     cnt = 0;
   }
 }
