@@ -1,209 +1,191 @@
-#include <L298N.h>
-
 #include <QTRSensors.h>
-
+#include <L298N.h>
 #include "BluetoothSerial.h"
 
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
+const int ledPin = 2;
 
-#define LED_BUILTIN 2
+//Assigning the motor pins (Connecting to the Motor Driver and the Motor)
+const int rightMotor1 = 19;
+const int rightMotor2 = 18;
+const int leftMotor1 = 17;
+const int leftMotor2 = 16;
 
-#define AIN1 19  //Assign the motor pins
-#define BIN1 16
-#define AIN2 22
-#define BIN2 23
-#define PWMA 18
-#define PWMB 5
-#define STBY 19
+//Enable pins of Motor driver to control the motor speed
+const int rightPWM = 13;
+const int leftPWM = 14;
+// const int buttonPin = ;
 
-
-const int offsetA = 1;
-const int offsetB = 1;
-
-L298N motor1(PWMA, AIN1, AIN2);
-L298N motor2(PWMB, BIN1, BIN2);
-
-QTRSensors qtr;
 BluetoothSerial SerialBT;
 
-const uint8_t SensorCount = 8;
-uint16_t sensorValues[SensorCount];
-int threshold[SensorCount];
+//Assinging pinNumbers of Motor driver using library
+L298N motor1(rightPWM, rightMotor1, rightMotor2);
+L298N motor2(leftPWM, leftMotor1, leftMotor2);
 
-float Kp = 0;
-float Ki = 0;
-float Kd = 0;
+const int numSensors = 8;
+const int sensorPins[numSensors] = {36, 39, 34, 35, 32, 33, 25, 26};
 
-uint8_t multiP = 1;
-uint8_t multiI  = 1;
-uint8_t multiD = 1;
-uint8_t Kpfinal;
-uint8_t Kifinal;
-uint8_t Kdfinal;
-float Pvalue;
-float Ivalue;
-float Dvalue;
+//SetPoint from the center of the line
+double setPoint = 4.5;
+int speedOfBot = 120;
+double input, output, prevInput = 0, prevErr = 0, iErr, integralConstant = 0;
 
-boolean onoff = false;
-int Speed = 125 ;
+//Declare and assigning the PID values to zero initially
+double kp = 124.0;
+double kd = 43.0;
+double ki = 4.5;
 
+//pId values setting helper variables
+double multiP = 1, multiI = 1, multiD = 1;
+double Pvalue, Ivalue, Dvalue;
+
+bool onoff = false;
+
+//Bluetooth connectivity values variables
 int val, cnt = 0, v[3];
 
-uint16_t position;
-int P, D, I, previousError, PIDvalue, error;
-int lsp, rsp;
-int lfspeed = Speed;
-
 void setup() {
-  qtr.setTypeAnalog();
-  qtr.setSensorPins((const uint8_t[]){34, 35, 32, 33, 25, 26, 27, 14}, SensorCount);
-
-  delay(500);
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
- 
-  Serial.begin(115200);
-  SerialBT.begin("MINE<3m");
-  Serial.println("Bluetooth Started! Ready to pair...");
-  for (uint16_t i = 0; i < 600; i++)
-  {
-    qtr.calibrate();
+  Serial.begin(112500);
+  SerialBT.begin("MINE <3");
+  //Assigning sensor pinNumbers to the sensor
+  for(int i=0; i<numSensors; i++) {
+    pinMode(sensorPins[i] , INPUT);
   }
-  digitalWrite(LED_BUILTIN, LOW); // turn off Arduino's LED to indicate we are through with calibration
 
-  for (uint8_t i = 0; i < SensorCount; i++)
-  {
-    threshold[i] = (qtr.calibrationOn.minimum[i] + qtr.calibrationOn.maximum[i])/2;
-//    Serial.print(threshold[i]);
-//    Serial.print("  ");
-  }
-  Serial.println();
-
-  delay(1000);
+  //setting the pinModes of Enables of the motor(incase it is not)
+  pinMode(rightPWM, OUTPUT);
+  pinMode(leftPWM, OUTPUT);
 }
 
-void loop()
-{
-  if (SerialBT.available()){
-    while(SerialBT.available() == 0);
-    valuesread();
-    processing();
+void loop() {
+  //Bluetooth Functionality
+  if(SerialBT.available()) {
+    while(SerialBT.available() == 0) {
+      valuesRead();
+      processing();
+    }
   }
-  if (onoff == true){
-    robot_control();
-  }
-  else if(onoff == false){
+
+  if(onoff == true) {
+    int sensorValues[numSensors];
+    //Reading the sensorValues as digital
+    for(int i=0; i<numSensors; i++) {
+      sensorValues[i] = digitalRead(sensorPins[i]);
+      //For Debugging: reading sensor values
+      Serial.print(sensorValues[i]);
+      Serial.print(" ");
+    }
+
+
+    //Calculating the weightedSum
+    double weightedSum = 0, sum = 0;
+    for(int i=0; i<numSensors; i++) {
+      weightedSum += (i+1)*sensorValues[i];
+      sum += sensorValues[i];
+    }
+    //For debugging: 
+
+    if(sum) {
+      input = weightedSum / sum;
+      prevInput = input;
+    }
+    else {
+      //To avoid division by zero
+      input = prevInput;
+    }
+
+    //Declaring and assigning the error
+    double err = input - setPoint;
+    //For Debugging: Finding the errorValue
+    // Serial.print("Error: ");
+    // Serial.println(err);
+    // Limiting the variable to a specific range
+    // iErr = constrain(iErr, -1*speedOfBot, speedOfBot);
+
+    double P = err;
+    double I = I + err;
+    double D = err - prevErr;
+
+    Pvalue = (kp / pow(10, multiP))*P;
+    Dvalue = (kd / pow(10, multiD))*D;
+    Ivalue = (ki / pow(10, multiI))*I;
+
+    double pId = Pvalue + Dvalue + Ivalue;
+
+    // pId = kp*err + kd*(err-prevErr) + ki*iErr;
+    prevErr = err;
+    // iErr += err;
+
+    //Setting the speedOfMotor according to the PID
+    int leftMotorSpeed = speedOfBot - pId;
+    int rightMotorSpeed = speedOfBot + pId;
+
+    //For Debugging: 
+    Serial.print("leftMotorSpeed: ");
+    Serial.print(leftMotorSpeed);
+    Serial.print(", rightMotorSpeed: ");
+    Serial.println(rightMotorSpeed);
+    // Serial.print("PID: ");
+    // Serial.println(pId);
+
+    //Applying the motor speeds
+    if(leftMotorSpeed>0) {
+      digitalWrite(leftMotor1, 1);
+      digitalWrite(leftMotor2 ,0);
+    }
+    else{
+      digitalWrite(leftMotor1, 0);
+      digitalWrite(leftMotor2 ,1);
+    }
+
+    if(rightMotorSpeed>0) {
+      digitalWrite(rightMotor1, 1);
+      digitalWrite(rightMotor2 ,0);
+    }
+    else{
+      digitalWrite(rightMotor1, 0);
+      digitalWrite(rightMotor2 ,1);
+    }
+
+    //Adjusting motor speeds based on pId output
+    leftMotorSpeed = constrain(abs(leftMotorSpeed), 0 , speedOfBot);
+    rightMotorSpeed = constrain(abs(rightMotorSpeed), 0 , speedOfBot);
+  } 
+  else if(onoff == false) {
     motor1.stop();
     motor2.stop();
   }
 }
-void robot_control(){
-  position = qtr.readLineBlack(sensorValues);
-  error = 4000 - position;
-//  error = SensorCount * 1000 / 2 - position;
-  Serial.print("Position: ");
-  Serial.print(position);
-  Serial.print("   Error: ");
-  Serial.println(error);
-  while(sensorValues[0]>=1000 && sensorValues[1]>=1000 && sensorValues[2]>=1000 && sensorValues[3]>=1000 && sensorValues[4]>=1000 && sensorValues[5]>=1000 && sensorValues[6]>=1000 && sensorValues[7]>=1000){ // A case when the line follower leaves the line
-    if(previousError>0){       //Turn left if the line was to the left before
-      motor_drive(-Speed,Speed);
-    }
-    else{
-      motor_drive(Speed,-Speed); // Else turn right
-    }
-    position = qtr.readLineBlack(sensorValues);
-  }
- 
-  PID_Linefollow(error);
-}
-void PID_Linefollow(int error){
-    P = error;
-    I = I + error;
-    D = error - previousError;
-   
-    Pvalue = (Kp/pow(10,multiP))*P;
-    Ivalue = (Ki/pow(10,multiI))*I;
-    Dvalue = (Kd/pow(10,multiD))*D;
 
-    float PIDvalue = Pvalue + Ivalue + Dvalue;
-    previousError = error;
-
-    lsp = lfspeed - PIDvalue;
-    rsp = lfspeed + PIDvalue;
-
-    if (lsp > Speed) {
-      lsp = Speed;
-    }
-    if (lsp < -1*Speed) {
-      lsp = -1*Speed;
-    }
-    if (rsp > Speed) {
-      rsp = Speed;
-    }
-    if (rsp < -1*Speed) {
-      rsp = -1*Speed;
-    }
-    motor_drive(lsp,rsp);
-}
-
-void valuesread()  {
+void valuesRead() {
   val = SerialBT.read();
   cnt++;
   v[cnt] = val;
-  if (cnt == 2)
+  if(cnt == 3) {
     cnt = 0;
+  }
 }
 
-//In this void the the 2 read values are assigned.
-void  processing() {
+void processing() {
   int a = v[1];
-  if (a == 1) {
-    Kp = v[2];
+  if(a==1) {
+    kp = v[2];
   }
-  if (a == 2) {
+  if(a==2) {
     multiP = v[2];
   }
-  if (a == 3) {
-    Ki = v[2];
+  if(a==3) {
+    ki = v[2];
   }
-  if (a == 4) {
+  if(a==4) {
     multiI = v[2];
   }
-  if (a == 5) {
-    Kd  = v[2];
+  if(a==5) {
+    kd = v[2];
   }
-  if (a == 6) {
+  if(a==6) {
     multiD = v[2];
   }
-  if (a == 7)  {
+  if(a==7) {
     onoff = v[2];
-  }
-}
-void motor_drive(int left, int right){
- 
-  if(right>0)
-  {
-    motor2.setSpeed(right);
-    motor2.forward();
-  }
-  else
-  {
-    motor2.setSpeed(right);
-    motor2.backward();
-  }
- 
- 
-  if(left>0)
-  {
-    motor1.setSpeed(left);
-    motor1.forward();
-  }
-  else
-  {
-    motor1.setSpeed(left);
-    motor1.backward();
   }
 }
